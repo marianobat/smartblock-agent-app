@@ -1,0 +1,19 @@
+appId: com.smartblock.agent
+productName: SmartBlock Agent
+files:
+  - "main.js"
+  - "agent/**"
+  - "renderer/**"
+  - "assets/**"
+extraResources:
+  - from: assets
+    to: assets
+
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+  icon: assets/icon.icns
+
+win:
+  target: nsis
+  icon: assets/icon.ico
