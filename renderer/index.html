@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>SmartBlock Agent</title>
+  <style>
+    body{font-family:system-ui;margin:20px;}
+    button{padding:8px 12px;margin:4px;}
+    pre{background:#0f1115;color:#e6e6e6;padding:10px;border-radius:8px;height:220px;overflow:auto;}
+    input{padding:6px 8px;margin:4px;min-width:250px;}
+  </style>
+</head>
+<body>
+  <h2>SmartBlock Agent</h2>
+  <p>Estado: <span id="status">Iniciando...</span></p>
+
+  <div>
+    <button id="btn-health">Health</button>
+    <button id="btn-version">Version</button>
+    <button id="btn-init">Init (config + update-index)</button>
+    <button id="btn-install">Instalar core arduino:avr</button>
+    <button id="btn-boards">Listar boards</button>
+  </div>
+
+  <div>
+    <input id="fqbn" placeholder="FQBN (arduino:avr:uno)">
+    <input id="port" placeholder="Puerto (/dev/tty... o COM3)">
+    <button id="btn-upload">Compile + Upload</button>
+  </div>
+
+  <pre id="log"></pre>
+
+<script>
+const L = m => { const e=document.getElementById('log'); e.textContent += m+'\n'; e.scrollTop=e.scrollHeight; };
+const GET = u => fetch(u).then(r=>r.json());
+const POST = (u,b) => fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(r=>r.json());
+
+async function s(){ try{const h=await GET('http://localhost:5055/health');document.getElementById('status').textContent=h.ok?'OK':'ERROR';}catch{document.getElementById('status').textContent='ERROR';}}
+
+document.getElementById('btn-health').onclick=async()=>L(JSON.stringify(await GET('http://localhost:5055/health'),null,2));
+document.getElementById('btn-version').onclick=async()=>L(JSON.stringify(await GET('http://localhost:5055/version'),null,2));
+document.getElementById('btn-init').onclick=async()=>L(JSON.stringify(await POST('http://localhost:5055/init'),null,2));
+document.getElementById('btn-install').onclick=async()=>L(JSON.stringify(await POST('http://localhost:5055/install-core',{core:'arduino:avr'}),null,2));
+document.getElementById('btn-boards').onclick=async()=>L(JSON.stringify(await GET('http://localhost:5055/boards'),null,2));
+document.getElementById('btn-upload').onclick=async()=>{
+  const fqbn=document.getElementById('fqbn').value.trim();
+  const port=document.getElementById('port').value.trim();
+  const ino=`#include <Arduino.h>\nvoid setup(){pinMode(13,OUTPUT);}\nvoid loop(){digitalWrite(13,HIGH);delay(500);digitalWrite(13,LOW);delay(500);}`;
+  L(JSON.stringify(await POST('http://localhost:5055/compile-upload',{ino,fqbn,port}),null,2));
+};
+s();
+</script>
+</body>
+</html>
