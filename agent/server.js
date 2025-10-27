@@ -97,7 +97,7 @@ async function ensureCli() {
   const cli = cliPath();
   if (fs.existsSync(cli)) return cli;
 
-  const url = downloadUrl();
+  const url = downloadUrlForPlatform();
   const tmp = path.join(os.tmpdir(), 'smartblock-cli');
   ensureDir(tmp);
   const archive = path.join(tmp, 'cli.zip');
