@@ -137,12 +137,16 @@ function tmpSketchDir() {
 
 app.get('/health', (req,res)=> res.json({ ok:true, agent:'smartblock', port:PORT, platform:process.platform, arch:process.arch }) );
 
-app.get('/version', async (req,res)=>{
+app.get('/version', async (req, res) => {
   try {
     const cli = await ensureCli();
     const v = await run(cli, ['version']);
-    res.json({ ok:true, version: v.stdout.trim() });
-  } catch(e) { res.status(500).json({ ok:false, error:e.stderr||e.err||e.message }); }
+    res.json({ ok: true, version: v.stdout.trim() });
+  } catch (e) {
+    const msg = e?.stderr || e?.message || String(e);
+    console.error('[Agent] /version error:', msg);
+    res.status(500).json({ ok: false, error: msg });
+  }
 });
 
 app.post('/init', async (req,res)=>{
@@ -185,4 +189,14 @@ app.post('/compile-upload', async (req,res)=>{
   } catch(e){ res.status(500).json({ ok:false, stdout:e.stdout, stderr:e.stderr }); }
 });
 
-app.listen(PORT, ()=> console.log(`SmartBlock Agent (auto-download) on http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`SmartBlock Agent on http://localhost:${PORT}`);
+  (async () => {
+    try {
+      await ensureCli();
+      console.log('[Agent] CLI listo (auto-prepare)');
+    } catch (e) {
+      console.error('[Agent] ensureCli falló al iniciar:', e?.message || e);
+    }
+  })();
+});
