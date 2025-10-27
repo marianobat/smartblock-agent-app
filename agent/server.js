@@ -34,14 +34,24 @@ function platformTag() {
   throw new Error('Plataforma no soportada');
 }
 
-function downloadUrl() {
-  const tag = platformTag();
-  return {
-    macOS_arm64:  'https://downloads.arduino.cc/arduino-cli/arduino-cli_latest_macOS_arm64.zip',
-    macOS_amd64:  'https://downloads.arduino.cc/arduino-cli/arduino-cli_latest_macOS_amd64.zip',
-    Windows_64bit:'https://downloads.arduino.cc/arduino-cli/arduino-cli_latest_Windows_64bit.zip',
-    Linux_64bit:  'https://downloads.arduino.cc/arduino-cli/arduino-cli_latest_Linux_64bit.tar.gz'
-  }[tag];
+function downloadUrlForPlatform() {
+  const base = 'https://downloads.arduino.cc/arduino-cli';
+  if (process.platform === 'darwin') {
+    // macOS
+    if (process.arch === 'arm64') {
+      // Mac M1, M2, M3
+      return `${base}/arduino-cli_latest_macOS_ARM64.tar.gz`;
+    } else {
+      // Mac Intel
+      return `${base}/arduino-cli_latest_macOS_64bit.tar.gz`;
+    }
+  }
+  if (process.platform === 'win32') {
+    // Windows 64-bit
+    return `${base}/arduino-cli_latest_Windows_64bit.zip`;
+  }
+  // Linux (64-bit)
+  return `${base}/arduino-cli_latest_Linux_64bit.tar.gz`;
 }
 
 function installDir() {
