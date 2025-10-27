@@ -48,30 +48,29 @@ function cliBinaryPath() {
     : path.join(dir, 'arduino-cli');
 }
 
-// ------------------- Resolución de URL correcta -------------------
-// (Nombre CONSISTENTE con lo que usa ensureCli)
+// ------------------- URL estable del CLI -------------------
 function downloadUrl() {
-  // Preferimos ZIP de GitHub para evitar tar xzf en macOS
-  const gh = 'https://github.com/arduino/arduino-cli/releases/latest/download';
-  const dl = 'https://downloads.arduino.cc/arduino-cli'; // seguimos usando para Win/Linux
-
+  const base = 'https://downloads.arduino.cc/arduino-cli';
   if (process.platform === 'darwin') {
     // macOS
     if (process.arch === 'arm64') {
-      return `${gh}/arduino-cli_latest_macos_arm64.zip`;     // ZIP (no tar.gz)
+      // Apple Silicon
+      return `${base}/arduino-cli_latest_macOS_ARM64.tar.gz`;
     } else {
-      return `${gh}/arduino-cli_latest_macos_amd64.zip`;     // ZIP (no tar.gz)
+      // Intel
+      return `${base}/arduino-cli_latest_macOS_64bit.tar.gz`;
     }
   }
   if (process.platform === 'win32') {
-    return `${dl}/arduino-cli_latest_Windows_64bit.zip`;     // ZIP
+    // Windows x64
+    return `${base}/arduino-cli_latest_Windows_64bit.zip`;
   }
   // Linux x64
-  return `${dl}/arduino-cli_latest_Linux_64bit.tar.gz`;      // tar.gz OK en Linux
+  return `${base}/arduino-cli_latest_Linux_64bit.tar.gz`;
 }
 
-// ------------------- Descarga con manejo de redirecciones -------------------
-function fetchToFile(url, outPath, maxRedirects = 5) {
+// ------------------- Descarga con soporte de redirecciones -------------------
+function fetchToFile(url, outPath, maxRedirects = 6) {
   return new Promise((resolve, reject) => {
     const visited = new Set();
 
@@ -83,9 +82,9 @@ function fetchToFile(url, outPath, maxRedirects = 5) {
       const file = fs.createWriteStream(outPath);
       https
         .get(currentUrl, (res) => {
-          // 3xx → follow
+          // Follow 3xx
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            file.close(() => fs.unlink(outPath, () => {})); // limpiar
+            file.close(() => fs.unlink(outPath, () => {})); // limpiar temporal
             const next = res.headers.location.startsWith('http')
               ? res.headers.location
               : new URL(res.headers.location, currentUrl).href;
@@ -123,15 +122,19 @@ function unzipZip(zipPath, destDir) {
       ps.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('Expand-Archive falló'))));
     } else {
       const unzip = spawn('unzip', ['-o', zipPath, '-d', destDir]);
-      unzip.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('unzip falló'))));
+      let stderr = '';
+      unzip.stderr?.on?.('data', (d) => (stderr += d.toString()));
+      unzip.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`unzip falló: ${stderr.trim()}`))));
     }
   });
 }
 
 function untarGz(tarPath, destDir) {
   return new Promise((resolve, reject) => {
-    const tar = spawn('tar', ['-xzf', tarPath, '-C', destDir]);
-    tar.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('tar xzf falló'))));
+    const proc = spawn('tar', ['-xzf', tarPath, '-C', destDir]);
+    let stderr = '';
+    proc.stderr.on('data', (d) => (stderr += d.toString()));
+    proc.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`tar xzf falló: ${stderr.trim()}`))));
   });
 }
 
@@ -145,12 +148,18 @@ async function ensureCli() {
   const tmpDir = path.join(installDir, '_tmp');
   ensureDir(tmpDir);
 
-  const url = downloadUrl(); // ← nombre consistente
+  const url = downloadUrl();
   const ext = url.endsWith('.zip') ? '.zip' : '.tar.gz';
   const archive = path.join(tmpDir, 'arduino-cli' + ext);
 
   console.log('[Agent] Descargando arduino-cli de:', url);
   await fetchToFile(url, archive);
+
+  // validar tamaño (evita intentar extraer HTML/errores)
+  const st = fs.statSync(archive);
+  if (!st.size || st.size < 1024) {
+    throw new Error(`Archivo descargado inválido (size=${st.size}). Posible 3xx/404/HTML en ${url}`);
+  }
 
   console.log('[Agent] Extrayendo:', ext);
   if (ext === '.zip') await unzipZip(archive, tmpDir);
@@ -298,7 +307,7 @@ app.post('/compile-upload', async (req, res) => {
 // ------------------- Arranque + auto-prepare -------------------
 app.listen(PORT, () => {
   console.log(`SmartBlock Agent on http://localhost:${PORT}`);
-  // Dispara la descarga del CLI al iniciar (silencioso, con logs en consola):
+  // Descarga/prepara el CLI al iniciar (silencioso, logs en consola):
   (async () => {
     try {
       await ensureCli();
