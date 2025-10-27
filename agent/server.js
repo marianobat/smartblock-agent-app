@@ -32,6 +32,8 @@ app.use(
 );
 
 // ------------------- Utilidades de FS/OS -------------------
+let cliReadyPromise = null; // evita carreras entre llamadas concurrentes
+
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
@@ -143,59 +145,75 @@ async function ensureCli() {
   const bin = cliBinaryPath();
   if (fs.existsSync(bin)) return bin;
 
-  const installDir = cliInstallDir();
-  ensureDir(installDir);
-  const tmpDir = path.join(installDir, '_tmp');
-  ensureDir(tmpDir);
+  // si ya hay una descarga en curso, espera esa
+  if (cliReadyPromise) return cliReadyPromise;
 
-  const url = downloadUrl();
-  const ext = url.endsWith('.zip') ? '.zip' : '.tar.gz';
-  const archive = path.join(tmpDir, 'arduino-cli' + ext);
+  cliReadyPromise = (async () => {
+    const installDir = cliInstallDir();
+    ensureDir(installDir);
+    const tmpDir = path.join(installDir, '_tmp');
+    ensureDir(tmpDir);
 
-  console.log('[Agent] Descargando arduino-cli de:', url);
-  await fetchToFile(url, archive);
+    const url = downloadUrl();
+    const ext = url.endsWith('.zip') ? '.zip' : '.tar.gz';
+    // nombre único para evitar pisadas entre procesos concurrentes
+    const archive = path.join(tmpDir, `arduino-cli_${Date.now()}${ext}`);
 
-  // validar tamaño (evita intentar extraer HTML/errores)
-  const st = fs.statSync(archive);
-  if (!st.size || st.size < 1024) {
-    throw new Error(`Archivo descargado inválido (size=${st.size}). Posible 3xx/404/HTML en ${url}`);
-  }
+    console.log('[Agent] Descargando arduino-cli de:', url);
+    await fetchToFile(url, archive);
 
-  console.log('[Agent] Extrayendo:', ext);
-  if (ext === '.zip') await unzipZip(archive, tmpDir);
-  else await untarGz(archive, tmpDir);
+    // verificar que realmente se descargó algo “grande”
+    if (!fs.existsSync(archive)) {
+      throw new Error(`Archivo no existe tras la descarga: ${archive}`);
+    }
+    const st = fs.statSync(archive);
+    if (!st.size || st.size < 1024) {
+      throw new Error(`Archivo descargado inválido (size=${st.size}). Posible 3xx/404/HTML en ${url}`);
+    }
 
-  // buscar ejecutable dentro del paquete
-  function findCli(dir) {
-    const entries = fs.readdirSync(dir);
-    for (const f of entries) {
-      const p = path.join(dir, f);
-      const s = fs.statSync(p);
-      if (s.isDirectory()) {
-        const inner = findCli(p);
-        if (inner) return inner;
-      } else if (f === 'arduino-cli' || f === 'arduino-cli.exe') {
-        if (process.platform === 'win32') {
-          if (p.endsWith('.exe')) return p;
-        } else {
-          if (!p.endsWith('.exe')) return p;
+    console.log('[Agent] Extrayendo:', ext);
+    if (ext === '.zip') await unzipZip(archive, tmpDir);
+    else await untarGz(archive, tmpDir);
+
+    // buscar ejecutable dentro del paquete
+    function findCli(dir) {
+      const entries = fs.readdirSync(dir);
+      for (const f of entries) {
+        const p = path.join(dir, f);
+        const s = fs.statSync(p);
+        if (s.isDirectory()) {
+          const inner = findCli(p);
+          if (inner) return inner;
+        } else if (f === 'arduino-cli' || f === 'arduino-cli.exe') {
+          if (process.platform === 'win32') {
+            if (p.endsWith('.exe')) return p;
+          } else {
+            if (!p.endsWith('.exe')) return p;
+          }
         }
       }
+      return null;
     }
-    return null;
+
+    const found = findCli(tmpDir);
+    if (!found) throw new Error('No se encontró arduino-cli dentro del paquete');
+
+    fs.copyFileSync(found, bin);
+    if (process.platform !== 'win32') fs.chmodSync(bin, 0o755);
+
+    // limpieza best-effort
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+
+    console.log('[Agent] CLI instalado en:', bin);
+    return bin;
+  })();
+
+  try {
+    return await cliReadyPromise;
+  } finally {
+    // libéralo al terminar (éxito o error) para permitir reintentos futuros
+    cliReadyPromise = null;
   }
-
-  const found = findCli(tmpDir);
-  if (!found) throw new Error('No se encontró arduino-cli dentro del paquete');
-
-  fs.copyFileSync(found, bin);
-  if (process.platform !== 'win32') fs.chmodSync(bin, 0o755);
-
-  // limpieza best-effort
-  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-
-  console.log('[Agent] CLI instalado en:', bin);
-  return bin;
 }
 
 // ------------------- Run helper -------------------
@@ -307,13 +325,6 @@ app.post('/compile-upload', async (req, res) => {
 // ------------------- Arranque + auto-prepare -------------------
 app.listen(PORT, () => {
   console.log(`SmartBlock Agent on http://localhost:${PORT}`);
-  // Descarga/prepara el CLI al iniciar (silencioso, logs en consola):
-  (async () => {
-    try {
-      await ensureCli();
-      console.log('[Agent] CLI listo (auto-prepare)');
-    } catch (e) {
-      console.error('[Agent] ensureCli falló al iniciar:', e?.message || e);
-    }
-  })();
+  // 👉 Deja comentado el auto-prepare mientras probamos:
+  // (async () => { try { await ensureCli(); console.log('[Agent] CLI listo (auto-prepare)'); } catch(e) { console.error('[Agent] ensureCli falló al iniciar:', e?.message || e); } })();
 });
