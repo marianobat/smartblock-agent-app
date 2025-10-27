@@ -51,23 +51,23 @@ function cliBinaryPath() {
 // ------------------- Resolución de URL correcta -------------------
 // (Nombre CONSISTENTE con lo que usa ensureCli)
 function downloadUrl() {
-  const base = 'https://downloads.arduino.cc/arduino-cli';
+  // Preferimos ZIP de GitHub para evitar tar xzf en macOS
+  const gh = 'https://github.com/arduino/arduino-cli/releases/latest/download';
+  const dl = 'https://downloads.arduino.cc/arduino-cli'; // seguimos usando para Win/Linux
+
   if (process.platform === 'darwin') {
     // macOS
     if (process.arch === 'arm64') {
-      // Apple Silicon
-      return `${base}/arduino-cli_latest_macOS_ARM64.tar.gz`;
+      return `${gh}/arduino-cli_latest_macos_arm64.zip`;     // ZIP (no tar.gz)
     } else {
-      // Intel
-      return `${base}/arduino-cli_latest_macOS_64bit.tar.gz`;
+      return `${gh}/arduino-cli_latest_macos_amd64.zip`;     // ZIP (no tar.gz)
     }
   }
   if (process.platform === 'win32') {
-    // Windows x64
-    return `${base}/arduino-cli_latest_Windows_64bit.zip`;
+    return `${dl}/arduino-cli_latest_Windows_64bit.zip`;     // ZIP
   }
   // Linux x64
-  return `${base}/arduino-cli_latest_Linux_64bit.tar.gz`;
+  return `${dl}/arduino-cli_latest_Linux_64bit.tar.gz`;      // tar.gz OK en Linux
 }
 
 // ------------------- Descarga con manejo de redirecciones -------------------
